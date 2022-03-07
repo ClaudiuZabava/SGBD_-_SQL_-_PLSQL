@@ -1,0 +1,154 @@
+/* Aici se afla cererile de la ex.11 si operatiile de actualizare de la ex 12.
+---------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------------- */
+
+-- CERERI --
+-- Afisati numele produselor,numele liderilor echipelor care au creat produssele si codul clientului care a comandat produse tip laptop: --
+
+select p.denumire_produs, s.nume, c.id_client
+from salariat s join salariat mg on(s.cnp_salariat = mg.cnp_salariat)
+     join echipa e on (mg.cnp_salariat=e.lider)
+     join produs p on (p.id_echipa = e.id_echipa)
+     join comanda cm on (cm.cod_fabricatie=p.cod_fabricatie)
+     join client c on (cm.id_client=c.id_client)
+where upper(p.tip_produs)='LAPTOP';
+
+-- Sa se afiseze Numele si data angajarii pentru salariatii angajati dupa Melisa Monroe si care au ca lider un salariat dintr-o echipa cu sediul in Europa
+select nume ||' '|| prenume, data_angajare
+from salariat
+where data_angajare > (select data_angajare
+                       from salariat
+                       where upper(nume) = 'MELISSA' and upper(prenume)='MONROE')
+                       and ( lider in (select lider
+                                     from echipa
+                                     where id_echipa in ( select id_echipa
+                                                          from sediu
+                                                          where upper(regiune)='EUROPA'))
+                          or cnp_salariat in (select lider
+                                              from echipa
+                                               where id_echipa in ( select id_echipa
+                                                                    from sediu
+                                                                    where upper(regiune)='EUROPA')));
+                                                                    
+                                                                    
+/* Pentru fiecare angajat afisati numele si prenumele si stadiul in care se afla.
+Prin stadiu intelegem urmatoarele: Daca in trecut angajatul a lucrat in alta echipa in firma, iar acum s-a reintors - > acesta este un angajat loial.
+Daca nu s-a intors la fosta echipa - > angajat neloial
+Daca nu s-a mutat deloc - > masaj care afirma asta*/
+
+select s.nume ||' '|| s.prenume as "Numele:",
+case when s.id_echipa in (select id_echipa
+                           from file_arhiva
+                           where cnp_salariat = s.cnp_salariat) then 'Angajat Loial: s-a intors in vechea echipa'
+    when s.cnp_salariat not in (select cnp_salariat
+                                 from file_arhiva) then 'Nu s-a mutat inca'
+else 'Angajat neloial'
+end as "Stadiu angajat:"
+from salariat s;
+
+
+-- Sa se listeze liderii echipelor care au un salariu mai amre de 10000 lei. ---
+select e.lider, s.salariu
+from echipa e, salariat s
+where s.cnp_salariat = e.lider and salariu>10000
+group by e.lider,s.salariu;
+
+
+-- Afisati primele top 3 echipe ale firmei --
+with podium as(select pseudonim_echipa, reputatie
+               from echipa
+               order by reputatie desc)
+select *
+from podium
+where rownum<=3;
+
+
+/* Realizati o statistica despre echipele europene ale firmei in ceea ce priveste castigul fiecarui angajat. 
+( se va calcula minimul ,maximul, salariul mediu si suma totala per echipa) */
+select s.id_echipa, concat(to_char(max(s.salariu)),' €') as "salariu maxim", concat(to_char(min(s.salariu)),' €') as "salariu minim", 
+concat(to_char(sum(s.salariu)), ' €') as "suma salariilor", concat(to_char(round(avg(s.salariu))),' €') as "salariu mediu"
+from salariat s
+group by s.id_echipa
+having upper((select regiune
+              from sediu
+              where id_echipa=s.id_echipa)) = 'EUROPA';
+
+-- Afisati numele salariatilor care au adrese de email create pe yahoo.com --
+select nume||' '||prenume as "Nume Salariat", DECODE(instr(email,'yahoo.com'),0,'Nu foloseste Yahoo','Foloseste Yahoo') as "Preferinte"
+from salariat;
+
+
+/* Afisati denumirea echipelor care au ales sa foloseasca componente de pe piata neagra in alcatuirea produselor
+O componenta e de pe piata neagra daca nu se precizeaza denumirea furnizorului ei */
+select pseudonim_echipa
+from echipa
+where id_echipa in(select id_echipa
+                    from produs
+                    where cod_fabricatie in 
+                   (select cod_fabricatie 
+                    from foloseste
+                     where lower(NVL(denumire_furnizor, 'FURNIZOR DE PE PIATA NEAGRA')) = 'furnizor de pe piata neagra'));
+
+
+/*Sa se afle numarul de luni diferenta intre data angajarii celui mai bine platit si mai vechi angajat si 
+celui mai prost platit si mai vechi angajat*/
+
+select round(months_between( (select min(data_angajare)
+                        from salariat
+                        where cnp_salariat in(
+                        select s.cnp_salariat
+                        from salariat s
+                        where s.salariu = ( select min(salariu) from salariat))),
+
+                        (select min(data_angajare)
+                        from salariat
+                        where cnp_salariat in(
+                        select s.cnp_salariat
+                        from salariat s
+                        where s.salariu = ( select max(salariu) from salariat))))) as "diferenta:"
+from dual;
+
+
+COMMIT;
+--- Operatii de actualizare --
+/* Recomand folosirea rollback-ului de la sfarsit intrucat unele dintre cererile de mai sus nu mai au sens dupa actualizarile facute aici */
+
+-- Vom inlocui denumirea furnizorului in ' Furnizor de pe piata neagra' unde eaceasta avea valoare null --
+UPDATE FOLOSESTE
+SET denumire_furnizor = 'Furnizor de pe piata neagra'
+where denumire_furnizor is NULL;
+
+select * foloseste;
+
+ROLLBACK;
+
+-- Echipele care au fost prinse ca folosesc componente de pe piata neagra vor primi un downgrade al reputatiei--
+
+UPDATE ECHIPA
+SET reputatie = reputatie - 10
+where id_echipa in (select id_echipa
+                    from produs
+                    where cod_fabricatie in 
+                   (select cod_fabricatie 
+                    from foloseste
+                     where lower(NVL(denumire_furnizor, 'FURNIZOR DE PE PIATA NEAGRA')) = 'furnizor de pe piata neagra'));
+                     
+select * from echipa;
+
+ROLLBACK;
+
+-- Angajatii din cele mai bune 3 echipe vor primi o marire de salariu --
+
+UPDATE SALARIAT
+SET salariu = salariu + 1000
+WHERE id_echipa in (select *
+                    from (select id_echipa
+                     from echipa
+                      order by reputatie desc)
+                      where rownum<=3);
+                      
+select * from salariat;
+
+ROLLBACK;
+
+-- Pentru a vizuliza exemplele de secvente -> deschideti documentul cu codul pentru crearea tabelelor --
